@@ -61,9 +61,33 @@ def check_for_buttons():
 
 
 def set_internal_time(utc_time):
+    
+# For the United States:
+#   Valid for years 1900 to 2006, though DST wasn't adopted until the 1950s-1960s.
+#   Begin DST: Sunday April (2+6*y-y/4) mod 7+1
+#   End DST: Sunday October (31-(y*5/4+1) mod 7)
+
+#   2007 and after:
+#   Begin DST: Sunday March 14 - (1 + y*5/4) mod 7
+#   End DST: Sunday November 7 - (1 + y*5/4) mod 7;
+
+    year = time.localtime(utc_time)[0]  # Get current year
+    
+    # Time of March change to DST
+    HHMarch   = time.mktime((year,3 ,(14-(int(1+year/5+4))%7),2,0,0,0,0,0))
+    # Time of October change to EST
+    HHOctober = time.mktime((year,11,(07-(int(1+year/5+4))%7),2,0,0,0,0,0))
+
+    if utc_time < HHMarch :             # Are we before 2nd Sunday of March
+        local_time=utc_time-5*3600      # EST: UTC-5H
+    elif utc_time < HHOctober :         # Are we before last Sunday of October
+        local_time=utc_time-4*3600      # DST: UTC-4H
+    else:                               # We are after last Sunday of October
+        local_time=utc_time-5*3600      # EST: UTC-5H    
+    
     rtc_base_mem = const(0x4005c000)
     atomic_bitmask_set = const(0x2000)
-    (year, month, day, hour, minute, second, wday, yday) = time.localtime(utc_time)
+    (year, month, day, hour, minute, second, wday, yday) = time.localtime(local_time)
     machine.mem32[rtc_base_mem + 4] = (year << 12) | (month << 8) | day
     machine.mem32[rtc_base_mem + 8] = ((hour << 16) | (minute << 8) | second) | (((wday + 1) % 7) << 24)
     machine.mem32[rtc_base_mem + atomic_bitmask_set + 0xc] = 0x10
@@ -75,6 +99,9 @@ def main():
     import ds3231
     from pluto import Pluto
     ds = ds3231.ds3231()
+    
+    # Ensure that ds3231 time is UTC - GMT time - set_internal_time
+    # will apply EST/DST offset 
     set_internal_time(ds.read_time())
 
     def draw_planets(HEIGHT, ti):
@@ -155,9 +182,14 @@ def main():
         display.rectangle(130, 0, 110, 35)
         display.rectangle(130, 93, 110, HEIGHT - 93)
 
+        # Every minute reset Pluto
         if mi != ti[4]:
             mi = ti[4]
             pl.reset()
+            # ds3231 time is UTC - GMT time - set_internal_time
+            # will apply EST/DST offset when appropriate
+            set_internal_time(ds.read_time())
+            
         pl.step(ti[5], ticks_dif)
         pl.draw()
 
